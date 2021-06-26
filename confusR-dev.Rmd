@@ -25,9 +25,9 @@ library(patchwork)
 
 This is a draft vignette for the `confusR` package. It serves as
 
-* a place for me to try out code to go into that package
-* a way to get feedback on the ideas and presentation of that package
-* a place where I can put reminders about things I need to do in writing `confusR`.
+-   a place for me to try out code to go into that package
+-   a way to get feedback on the ideas and presentation of that package
+-   a place where I can put reminders about things I need to do in writing `confusR`.
 
 ```{r function-as.Prob, echo=FALSE}
 # Given a vector of odds, return the corresponding probabilities
@@ -215,7 +215,8 @@ plot.BayesFactors.pos <- function(C, sort.by="LR+", show.arrows=FALSE, arrow.len
     p1 <- p1 + geom_segment(
       data=C.arrows,
       aes(xend=class, y=prior.O, yend=post.O),
-      lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
   }
   p1 + geom_crossbar(aes(y=value, ymin=value, ymax=value, group=variable, color=variable), fatten=2) +
     scale_y_continuous(breaks=log10(as.Odds(probs)), labels = as.character(probs), name="probability") +
@@ -230,7 +231,8 @@ plot.BayesFactors.pos <- function(C, sort.by="LR+", show.arrows=FALSE, arrow.len
     p2 <- p2 + geom_segment(
       data=C.arrows,
       aes(xend=class, y=0, yend=PLR),
-      lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size)
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size)
   }
   p2 + geom_hline(yintercept = 0, lty=2) +
     geom_crossbar(aes(ymin=value, ymax=value), fatten=2) +
@@ -390,120 +392,6 @@ readRDS("./rds/HASY.rds")             -> HASY
 ```
 
 
-```{r make-binary.confusion, echo=FALSE, eval=FALSE}
-## Example data
-## 
-# `binary.confusion` shows where the true/false positives/negatives of a confusion matrix go:
-matrix(
-  c("TP", "FP",
-    "FN", "TN"),
-  nrow=2, 
-  byrow = TRUE,
-  dimnames = list(predicted=c("positive", "negative"), actual=c("positive", "negative"))
-) -> binary.confusion
-```
-
-```{r comment=NA, echo=FALSE, eval=FALSE}
-noquote(binary.confusion)
-```
-
-```{r make-Eddy, echo=FALSE, eval=FALSE}
-#`Eddy` is a binary confusion matrix derived from Probabilistic reasoning in clinical medicine: Problems and opportunities [@tversky_probabilistic_1982]:
-
-Pos   <-    10     
-Neg   <-   990
-TPR   <-     0.792
-FPR   <-     0.096
-TP    <- round(Pos * TPR)
-FN    <- Pos - TP
-FP    <- round(Neg * FPR)
-TN    <- Neg - FP
-
-matrix(
-  c(TP, FP,
-    FN, TN),
-  nrow=2, 
-  byrow = TRUE,
-  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
-) -> Eddy
-
-#`Eddy.equal` is the confusion matrix we would expect if that classification system was applied to a sample of 1000 cases in which the prior probability of cancer was 50%:
-
-Pos   <-   500     
-Neg   <-   500
-TPR   <-     0.792
-FPR   <-     0.096
-TP    <- round(Pos * TPR)
-FN    <- Pos - TP
-FP    <- round(Neg * FPR)
-TN    <- Neg - FP
-
-matrix(
-  c(TP, FP,
-    FN, TN),
-  nrow=2, 
-  byrow = TRUE,
-  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
-) -> Eddy.equal
-
-rm(Pos, Neg, TPR, FPR, TP, FN, FP, TN)
-```
-
-```{r comment=NA, echo=FALSE, eval=FALSE}
-Eddy
-```
-
-```{r comment=NA, echo=FALSE, eval=FALSE}
-Eddy.equal
-```
-
-
-```{r make-Wiki, echo=FALSE, eval=FALSE}
-# `Wiki` is a binary confusion matrix sourced from Wikipedia's [Likelihood_ratios_in_diagnostic_testing]( https://en.wikipedia.org/wiki/Likelihood_ratios_in_diagnostic_testing) in which there is a worked example of a diagnostic test with sensitivity 67% and specificity 91% applied to 2030 people to look for a disorder with a population prevalence of 1.48%
-
-
-matrix(
-  c(20,  180,
-    10, 1820),
-  nrow=2, 
-  byrow = TRUE,
-  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
-) -> Wiki
-```
-
-```{r comment=NA, echo=FALSE, eval=FALSE}
-Wiki
-```
-
-```{r read-CAMDA, echo=FALSE, eval=FALSE}
-# `CAMDA` is a 23-class confusion matrix from a classifier we built for the 2020 CAMDA Challenge as described in our ISMB2020 conference paper [Metagenomic Geolocation using Read Signatures](https://www.iscb.org/cms_addon/conferences/ismb2020/tracks/camdacosi):
-
-  read_csv("./data/CAMDA.csv", col_types = cols()) %$% 
-  table(predicted, actual) %>%
-  unclass() -> CAMDA
-```
-
-```{r comment=NA, echo=FALSE, eval=FALSE}
-options(width = 120)
-CAMDA
-```
-
-
-```{r read-CUP, echo=FALSE, eval=FALSE}
-# `CUP` is the 17-class confusion matrix shown in Figure 2 of [AI-based pathology predicts origins for cancers of unknown primary](https://www.nature.com/articles/s41586-021-03512-4):
-
-read_csv("./data/CUP.csv", col_types = cols())   %>%
-  column_to_rownames('Organ') %>% 
-  as.matrix() -> CUP
-mode(CUP) <- "integer"
-dimnames(CUP) <- list(predicted=substr(rownames(CUP), 1, 4), actual=substr(colnames(CUP), 1, 4))
-```
-
-```{r show-CUP, comment=NA, echo=FALSE, eval=FALSE}
-options(width = 120)
-CUP
-```
-
 ```{r tests, include=FALSE, eval=FALSE}
 OVA(Eddy) %>% select(class, post.P)
 OVA(Wiki) -> Wiki.OVA
@@ -514,53 +402,50 @@ all.equal(OVA(CAMDA), reprioritise.OVA(CAMDA))
 
 # Motivation: understanding multinomial classifier performance
 
-> Binary models have well established measures of performance (e.g., precision, accuracy). With multinomial classification methods, it is not so simple.  
-What measures exist for assessing and describing performance of multinomial classification models, and how can we express those measures in a way that is interpretable by non-data-scientists?  
---- Brendan Langfield
+> Binary models have well established measures of performance (e.g., precision, accuracy). With multinomial classification methods, it is not so simple.\
+> What measures exist for assessing and describing performance of multinomial classification models, and how can we express those measures in a way that is interpretable by non-data-scientists?\
+> --- Brendan Langfield
 
 As organisations seek to develop and deploy more complex classification systems, there is a growing need for understanding and transparency in model development, as well as a requirement to explain how the models are operating. Similar to assessment in educational settings, we can think about performance assessment of classification systems with two ends in mind:
 
-1.    _Summative_, in which we simply wish to have a measure of performance that we can use to compare and rank different classifiers, e.g., in a "performance shoot-out"
-2.    _Formative_, in which we wish to gain insight into the strengths and limitations of a classification system so we can improve its performance.
+1.  *Summative*, in which we simply wish to have a measure of performance that we can use to compare and rank different classifiers, e.g., in a "performance shoot-out"
+2.  *Formative*, in which we wish to gain insight into the strengths and limitations of a classification system so we can improve its performance.
 
 We are interested in the latter.
 
 In particular, we want to separate the test set performance of the classifier into two parts
 
-1. the effect of the abundance of different classes in the test set, i.e., the prior prevalence of classes
-1. the effect of classifier, i.e., its innate ability to discriminate different classes
-
+1.  the effect of the abundance of different classes in the test set, i.e., the prior prevalence of classes
+2.  the effect of classifier, i.e., its innate ability to discriminate different classes
 
 # Approach: use Bayes rule with odds
 
 Grant Sanderson suggests that we can better understand the discriminative performance of a model by expressing Bayes' rule in terms of prior odds and Bayes factors [@3blue1brown_medical_2020].
 
-Suppose we have a hypothesis $\mathrm{D}$ that a person actually has a disease, and some evidence $\mathrm{T}$ in about that in the form of a positive test result for that disease.
-Often we want to know _"if I have a positive test result, what's the chance that I actually have the disease"_. Usually this is written symbolically in terms of _probabilities_ as:
+Suppose we have a hypothesis $\mathrm{D}$ that a person actually has a disease, and some evidence $\mathrm{T}$ in about that in the form of a positive test result for that disease. Often we want to know *"if I have a positive test result, what's the chance that I actually have the disease"*. Usually this is written symbolically in terms of *probabilities* as:
 $$
 \mathrm{P(D|T)} = \frac{\mathrm{P(T|D)P(D)}}{\mathrm{P(T|D)P(D)}+\mathrm{P(T|\overline{D})P(\overline{D})}}
 $$
-
-...but Sanderson extols the merits of writing this using _odds_:
+...but Sanderson extols the merits of writing this using *odds*:
 $$
 \begin{align}
 \mathrm{O(D|T)} &= \mathrm{O(D)} \frac{\mathrm{P(T|D)}}{\mathrm{P(T|\overline{D})}}\\
 &= \mathrm{O(D)} \frac{\text{True positive rate}}{\text{False positive rate}}
 \end{align}
 $$
-where the ratio is the _Bayes factor_ of the test for a positive result. This factor represents how our prior odds of having the disease are _updated_ as a result of the test outcome. It is also known as the _likelihood ratio of a positive outcome_ (or _LR+_ for short).
+where the ratio is the *Bayes factor* of the test for a positive result. This factor represents how our prior odds of having the disease are *updated* as a result of the test outcome. It is also known as the *likelihood ratio of a positive outcome* (or *LR+* for short).
 
 In the language of statistics,
 
-* the _posterior_ odds (your odds of having the disease _after_ you have had a test which predicted that you have the disease)
+-   the *posterior* odds (your odds of having the disease *after* you have had a test which predicted that you have the disease)
 
 equals
 
-* the _prior_ odds (your odds of having the disease)
+-   the *prior* odds (your odds of having the disease)
 
 multiplied by
 
-* the _Bayes factor_ for the test to predict whether you have the disease
+-   the *Bayes factor* for the test to predict whether you have the disease
 
 or, more succinctly
 
@@ -585,14 +470,14 @@ $$
 
 David M. Eddy [-@tversky_probabilistic_1982] gives an example of a diagnostic test for breast cancer where the test had
 
-* a true positive rate of 79.2%
-* a false positive rate of 9.6%
+-   a true positive rate of 79.2%
+-   a false positive rate of 9.6%
 
 and the prior probability of breast cancer was assumed to be 1%.
 
 Eddy asked physicians to estimate the probability of actually having cancer given a prediction of cancer from the test.
 
-If you have not seen this example, I recommend you watch Luana Micallef's [-@luana_micallef_explaining_2012] telling of it  right now before I spoil the surprising answer.
+If you have not seen this example, I recommend you watch Luana Micallef's [-@luana_micallef_explaining_2012] telling of it right now before I spoil the surprising answer.
 
 Here's the confusion matrix we would expect if we applied this test to 1000 patients:
 
@@ -606,8 +491,7 @@ and here is how we refer to the cells in a binary confusion matrix, i.e., true p
 noquote(binary.confusion)
 ```
 
-So, with this confusion matrix, the probability  of actually having cancer given a prediction of cancer by the test is
-$$
+So, with this confusion matrix, the probability of actually having cancer given a prediction of cancer by the test is $$
 \begin{align}
 \mathrm{P}(\text{actually having cancer }|\text{ test predicts cancer}) &= \frac{\text{TP}}{\text{TP}+\text{FP}}\\
 &= \frac{`r Eddy["cancer", "cancer"]`}{`r Eddy["cancer", "cancer"]`+`r Eddy["cancer", "benign"]`}\\[1.5ex]
@@ -615,8 +499,7 @@ $$
 \end{align}
 $$
 
-
-The surprise (for most people) is that a test with a true positive rate of 79.2% and false positive rate of 9.6% has such a low probability of actually being right. The reason for this counter-intuitive outcome is that the _prior_ probability of cancer is rare (1%), so when the test is positive, it is usually a _false_ positive. 
+The surprise (for most people) is that a test with a true positive rate of 79.2% and false positive rate of 9.6% has such a low probability of actually being right. The reason for this counter-intuitive outcome is that the *prior* probability of cancer is rare (1%), so when the test is positive, it is usually a *false* positive.
 
 Let's change the prior probability of cancer and see how the same test performs. Here is the confusion matrix of the same diagnostic test applied to 1000 patients who have a 50% prior probability of breast cancer:
 
@@ -624,8 +507,7 @@ Let's change the prior probability of cancer and see how the same test performs.
 Eddy.equal
 ```
 
-With this set of patients, the probability  of actually having cancer given a prediction of cancer by the test is
-$$
+With this set of patients, the probability of actually having cancer given a prediction of cancer by the test is $$
 \begin{align}
 \mathrm{P}(\text{actually having cancer }|\text{ test predicts cancer}) &= \frac{\text{TP}}{\text{TP}+\text{FP}}\\
 &= \frac{`r Eddy.equal["cancer", "cancer"]`}{`r Eddy.equal["cancer", "cancer"]`+`r Eddy.equal["cancer", "benign"]`}\\[1.5ex]
@@ -633,10 +515,9 @@ $$
 \end{align}
 $$
 
-Same test, but the new confusion matrix shows the probability the test's prediction of cancer is correct has increased dramatically. 
+Same test, but the new confusion matrix shows the probability the test's prediction of cancer is correct has increased dramatically.
 
-For many people, this is confusing. How can the same test have such a different probability of being right in these two scenarios?
-To make sense of this, we suggest using the odds formulation of Bayes rule, i.e., 
+For many people, this is confusing. How can the same test have such a different probability of being right in these two scenarios? To make sense of this, we suggest using the odds formulation of Bayes rule, i.e.,
 
 $$
 \begin{align}
@@ -645,10 +526,10 @@ $$
 \end{align}
 $$
 
-to split apart 
+to split apart
 
-1. the effect of the abundance of different classes in the test set, i.e., the prior prevalence of cancer
-1. the effect of classifier, i.e., its innate ability to discriminate cancer from benign cases.
+1.  the effect of the abundance of different classes in the test set, i.e., the prior prevalence of cancer
+2.  the effect of classifier, i.e., its innate ability to discriminate cancer from benign cases.
 
 Here is a plot which shows that split
 
@@ -656,39 +537,26 @@ Here is a plot which shows that split
 plot.BayesFactors.pos(Eddy, show.arrows=TRUE, legend.pos=c(0,0))
 ```
 
-
 ```{r echo=FALSE}
 OVA(Eddy) -> Eddy.OVA
 ```
 
 In the above plot (which is on a log scale)
 
-* The left panel shows prior probabilities of cancer
-  (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(prior.P)`)
-  and benign
-  (`r Eddy.OVA %>% filter(class=="benign") %>% pull(prior.P)`)
-  in red
-* The right panel shows on the same scale the Bayes factors of the test for cancer
-  (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(PLR) %>% round(3)`),
-  and for benign
-  (`r Eddy.OVA %>% filter(class=="benign") %>% pull(PLR) %>% round(3)`)
-* The left panel shows shows the posterior probabilities of cancer
-  (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(post.P) %>% round(3)`)
-  and benign
-  (`r Eddy.OVA %>% filter(class=="benign") %>% pull(post.P) %>% round(3)`)  in blue.
-* The black arrows in the left panel show 
-$$
-\begin{align}
-\log(\text{posterior odds of cancer}) &= \log(\text{prior odds of cancer}) + \log(\text{Bayes factor of test for cancer})
-\end{align}
-$$
-* The black arrows in the right panel show $\log(\text{Bayes factor of test for cancer})$
+-   The left panel shows prior probabilities of cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(prior.P)`) and benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(prior.P)`) in red
+-   The right panel shows on the same scale the Bayes factors of the test for cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(PLR) %>% round(3)`), and for benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(PLR) %>% round(3)`)
+-   The left panel shows shows the posterior probabilities of cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(post.P) %>% round(3)`) and benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(post.P) %>% round(3)`) in blue.
+-   The black arrows in the left panel show $$
+    \begin{align}
+    \log(\text{posterior odds of cancer}) &= \log(\text{prior odds of cancer}) + \log(\text{Bayes factor of test for cancer})
+    \end{align}
+    $$
+-   The black arrows in the right panel show $\log(\text{Bayes factor of test for cancer})$
 
+In other words,
 
-In other words, 
-
-1. the left panel shows the prior odds of cancer and the effect that the classifier has on updating those odds
-1. the right panel shows the effect of classifier alone.
+1.  the left panel shows the prior odds of cancer and the effect that the classifier has on updating those odds
+2.  the right panel shows the effect of classifier alone.
 
 Now let's use this same plotting technique on the confusion matrix of the same diagnostic test applied to 1000 patients who have a 50% prior probability of breast cancer:
 
@@ -696,32 +564,29 @@ Now let's use this same plotting technique on the confusion matrix of the same d
 Eddy.equal
 ```
 
-
 ```{r echo=TRUE}
 plot.BayesFactors.pos(Eddy.equal, show.arrows=TRUE, legend.pos=c(0,0), log.range=7)
 ```
 
-* See how the probabilities in the left panel changes as the prior probability of cancer changes to 0.5?
-* See how the Bayes factors in the right panel stay the same? The test itself has not changed.
+-   See how the probabilities in the left panel changes as the prior probability of cancer changes to 0.5?
+-   See how the Bayes factors in the right panel stay the same? The test itself has not changed.
 
-This approach separates the characteristics of the classifier from the prior distribution of the classes it is applied to.
-Now let's look at how this approach can be applied to multinomial classification systems.
+This approach separates the characteristics of the classifier from the prior distribution of the classes it is applied to. Now let's look at how this approach can be applied to multinomial classification systems.
 
 # Approach: use one-versus-all to partition multinomial confusion matrices
 
-We've just looked at a binary classification system in which a test can make one of two possible predictions, cancer or benign.
-Multinomial classification systems make predictions of 1-out-of-$C$ classes, where $C > 2$.
+We've just looked at a binary classification system in which a test can make one of two possible predictions, cancer or benign. Multinomial classification systems make predictions of 1-out-of-$C$ classes, where $C > 2$.
 
-  * We use the term "classification system" because multinomial classifiers may comprise multiple base classifiers (e.g., binary classifiers) whose outputs are combined to produce a single prediction.
-  
+-   We use the term "classification system" because multinomial classifiers may comprise multiple base classifiers (e.g., binary classifiers) whose outputs are combined to produce a single prediction.
+
 Here's an example confusion matrix from a multinomial classifier with 17 classes
 
-```{r show-CUP.2, comment=NA, echo=FALSE}
+```{r show-CUP.2, echo=FALSE, comment=NA}
 options(width = 120)
 CUP
 ```
 
-This summarises the predictions that a classification system made about examples whose actual classes were known. This 17 $\times$ 17 matrix can be summarised further by forming the 17 _binary_ confusion matrices of each class versus all other classes, e.g.,
+This summarises the predictions that a classification system made about examples whose actual classes were known. This 17 $\times$ 17 matrix can be summarised further by forming the 17 *binary* confusion matrices of each class versus all other classes, e.g.,
 
 ```{r echo=FALSE, comment=NA}
 OVA.confusion(CUP, "Lung")
@@ -729,18 +594,21 @@ OVA.confusion(CUP, "Brea")
 ```
 
 ...through to...
+
 ```{r echo=FALSE, comment=NA}
 OVA.confusion(CUP, "Cerv")
 ```
+
 # Example: visualising multinomial confusion matrices
 
-Once we have summarised a $C\times C$ confusion matrix as $C$ binary one-versus-all confusion matrices, we can visualise the prior, posterior and Bayes factor for each class versus all others like so: 
+Once we have summarised a $C\times C$ confusion matrix as $C$ binary one-versus-all confusion matrices, we can visualise the prior, posterior and Bayes factor for each class versus all others like so:
 
 ```{r echo=TRUE}
 plot.BayesFactors.pos(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
 ```
 
 This can be sorted by prior class probability
+
 ```{r echo=TRUE}
 plot.BayesFactors.pos(CUP, sort.by="prior")
 ```
@@ -753,30 +621,29 @@ plot.BayesFactors.pos(CUP, sort.by="post")
 
 Note the estimated Bayes factors for the classes `Thyr` and `Adre` are infinite; the posterior probability of actually being `Thyr` given a prediction of `Thyr` is 1 and this value is off the right of the scale in the left panel.
 
-Here's another example of a different (23 $\times$ 23) confusion matrix in which we see a class (`LIS`) that is _never_ predicted correctly:
+Here's another example of a different (23 $\times$ 23) confusion matrix in which we see a class (`LIS`) that is *never* predicted correctly:
 
 ```{r show-CAMDA.2, comment=NA, echo=FALSE}
 options(width = 120)
 CAMDA
 ```
 
-and in this situation, the posterior probability and Bayes factor for `LIS` versus all other classes are off the _left_ of the scale
+and in this situation, the posterior probability and Bayes factor for `LIS` versus all other classes are off the *left* of the scale
+
 ```{r echo=FALSE}
 plot.BayesFactors.pos(CAMDA, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
 ```
 
 # Example: visualising the likelihood of a negative outcome
 
-So far, we have been working with the odds formulation of Bayes rule for a positive outcome, i.e., the odds of actually having a disease given that the test predicts that you do $\mathrm{O(D|T)}$ :
-$$
+So far, we have been working with the odds formulation of Bayes rule for a positive outcome, i.e., the odds of actually having a disease given that the test predicts that you do $\mathrm{O(D|T)}$ : $$
 \begin{align}
 \mathrm{O(D|T)} &= \mathrm{O(D)} \frac{\mathrm{P(T|D)}}{\mathrm{P(T|\overline{D})}}\\
 &= \mathrm{O(D)} \frac{\text{True positive rate}}{\text{False positive rate}}
 \end{align}
-$$
-where the ratio is the _Bayes factor_ of the test for a positive result, i.e., the _likelihood ratio of a positive outcome_ ( _LR+_ ).
+$$ where the ratio is the *Bayes factor* of the test for a positive result, i.e., the *likelihood ratio of a positive outcome* ( *LR+* ).
 
-We can also work with the odds formulation for a _negative_ outcome, i.e., the odds that you _do not_ have the disease given that the test predicts that you do not: $\mathrm{O(\overline{D}|\overline{T})}$.
+We can also work with the odds formulation for a *negative* outcome, i.e., the odds that you *do not* have the disease given that the test predicts that you do not: $\mathrm{O(\overline{D}|\overline{T})}$.
 
 In that case
 
@@ -785,46 +652,45 @@ $$
 \mathrm{O(\overline{D}|\overline{T})} &= \mathrm{O(\overline{D})} \frac{\mathrm{P(\overline{T}|\overline{D})}}{\mathrm{P(\overline{T}|D)}}\\
 &= \mathrm{O(\overline{D})} \frac{\text{True negative rate}}{\text{False negative rate}}
 \end{align}
-$$
-where the ratio
-$$
+$$ where the ratio $$
 \frac{\text{True negative rate}}{\text{False negative rate}} = \frac{1}{\text{Bayes factor for a negative outcome}}.
-$$
-The _Bayes factor_ of the test for a negative result is also known as the _likelihood ratio of a negative outcome_ (or _LR-_ for short).
+$$ The *Bayes factor* of the test for a negative result is also known as the *likelihood ratio of a negative outcome* (or *LR-* for short).
 
 Here is how the odds of negative outcomes look for each type of cancer of unknown primary
+
 ```{r}
 plot.BayesFactors.neg(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(0,0))
 ```
 
-Note that because of there are 17 classes in this scenario, the prior probability of an example _not_ being from a specific class is high.
+Note that because of there are 17 classes in this scenario, the prior probability of an example *not* being from a specific class is high.
 
 Here are the Bayes factor plots for the `Eddy` data, first, for a negative outcome...
+
 ```{r}
 plot.BayesFactors.neg(Eddy, show.arrows = TRUE, legend.pos = c(0,0))
 ```
 
 ...then for the positive outcome.
+
 ```{r}
 plot.BayesFactors.pos(Eddy, show.arrows = TRUE, legend.pos = c(0,0))
 ```
 
 # Example: visualising the diagnostic odds ratio
 
-The _diagnostic odds ratio_ (DOR) [@glas_diagnostic_2003] combines the Bayes factors (likelihood ratios) for the positive result (LR+) and the negative result (LR-) of a binary test:
-$$
+The *diagnostic odds ratio* (DOR) [@glas_diagnostic_2003] combines the Bayes factors (likelihood ratios) for the positive result (LR+) and the negative result (LR-) of a binary test: $$
 \begin{align}
 \mathrm{DOR} &= \frac{\mathrm{LR+}}{\mathrm{LR-}}\\
 &= \frac{\text{True positive rate}}{\text{False positive rate}}\cdot\frac{\text{True negative rate}}{\text{False negative rate}}
 \end{align}
 $$
 
-so taking logs we can write
-$$
+so taking logs we can write $$
 \log(\mathrm{DOR}) = \log(\mathrm{LR+}) + \log(1/\mathrm{LR-})
 $$
 
-which we can visualise as 
+which we can visualise as
+
 ```{r}
 plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0))
 ```
@@ -832,6 +698,7 @@ plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos
 Here the arrows emphasise that $\log(1/\mathrm{LR-})=-\log(\mathrm{LR-})$ is added to $\log(\mathrm{LR+})$ to get $\log(\mathrm{DOR})$.
 
 We can sort the classes by LR+ or LR-:
+
 ```{r}
 plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0), sort.by = "LR+")
 plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0), sort.by = "LR-")
@@ -839,7 +706,7 @@ plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos
 
 For binary classifiers, the diagnostic odds ratio is the same for both outcomes, emphasisng that the confusion matrix has four numbers and three degrees of freedom: neither LR+ or LR- completely summarise the confusion matrix. Only DOR does that (by arbitrarily dividing LR+/LR-)
 
-## Example: larger confusion matrices
+# Example: larger confusion matrices
 
 `HASY` is a 369 $\times$ 369 confusion matrix.
 
@@ -858,7 +725,6 @@ ggplot(mutate(HASY.OVA, class   = fct_reorder(class, PLR)), aes(x=class)) +
   geom_point(aes(y=PLR)) + 
 ```
 
-
 ```{r include=FALSE}
 C      <- CAMDA
 
@@ -876,6 +742,7 @@ as.data.frame.table(C) %>%
 
 
 ```
+
 ```{r include=FALSE}
 read_csv("./data/CAMDA.csv") %$% table(predicted, actual) -> CAMDA.confusion
 C <- CAMDA.confusion
@@ -894,6 +761,4 @@ as_tibble(C) %>%
 reorder_classes(C, C.OVA)
 ```
 
-
 # Bibliography
-

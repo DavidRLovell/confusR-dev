@@ -155,21 +155,33 @@ CUP
 
 ## HASY
 
+
 ```{r}
-HASY.names <- fromJSON("./data/hasy.json")
-fromJSON("./data/confusion-matrix.json") %>% t() -> HASY
-dimnames(HASY) <- list(predicted=HASY.names, actual=HASY.names)
+fromJSON("./data/hasy.json") -> HASY.names 
+fromJSON("./data/confusion-matrix.json")  %>% t() -> HASY
+fromJSON("./data/cm-hasy-test-seq.json")  %>% t() -> HASY.test
+fromJSON("./data/cm-hasy-train-seq.json") %>% t() -> HASY.train
+
+dimnames(HASY)       <- list(predicted=HASY.names, actual=HASY.names)
+dimnames(HASY.test)  <- list(predicted=HASY.names, actual=HASY.names)
+dimnames(HASY.train) <- list(predicted=HASY.names, actual=HASY.names)
 ```
 
 ```{r}
+all.names  <- row.names(HASY)
+some.names <- character(length(all.names))
+which.names <- seq(from=1, to=length(all.names), by=10)
+some.names[which.names] <- all.names[which.names]
+
 as.data.frame.table(HASY) %>% 
   as_tibble() %>%
   ggplot(aes(x=actual,y=predicted)) +
   geom_raster(aes(fill=Freq)) +
   #scale_fill_viridis() +
   scale_fill_gradient(low="white", high="black") +
-  scale_y_discrete(limits=rev) +
-  coord_equal() +  theme_void()
+  scale_x_discrete(            labels=   (some.names)) +
+  scale_y_discrete(limits=rev, labels=rev(some.names)) +
+  coord_equal() + theme(legend.justification=c(1,1), legend.position = c(1,1), axis.text.x  = element_text(angle=90, hjust=1, vjust=0.5))
 ```
 
 
@@ -183,6 +195,9 @@ saveRDS(Wiki,             "./rds/Wiki.rds")
 saveRDS(CAMDA,            "./rds/CAMDA.rds")
 saveRDS(CUP,              "./rds/CUP.rds")
 saveRDS(HASY,             "./rds/HASY.rds")
+saveRDS(HASY.test,        "./rds/HASY.test.rds")
+saveRDS(HASY.train,       "./rds/HASY.train.rds")
+
 ```
 
 Clear the environment and reload the data
@@ -196,6 +211,8 @@ readRDS("./rds/Wiki.rds")             -> Wiki
 readRDS("./rds/CAMDA.rds")            -> CAMDA
 readRDS("./rds/CUP.rds")              -> CUP
 readRDS("./rds/HASY.rds")             -> HASY
+readRDS("./rds/HASY.test.rds")        -> HASY.test
+readRDS("./rds/HASY.train.rds")       -> HASY.train
 
 ls.str()
 ```
