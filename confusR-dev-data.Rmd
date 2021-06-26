@@ -1,0 +1,203 @@
+---
+title: "Make confusR data"
+author: "David Lovell"
+date: "16/06/2021"
+output: html_document
+bibliography: VRES.json
+---
+
+```{r setup, include=FALSE}
+# Start with a clean environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tibble)
+library(magrittr)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(jsonlite)
+library(viridis)
+```
+
+#### About this document
+
+This describes and generates the data used in the `confusR` package
+
+# Example data
+## binary.confusion
+ 
+`binary.confusion` shows where the true/false positives/negatives of a confusion matrix go:
+
+```{r make-binary.confusion, echo=FALSE}
+
+matrix(
+  c("TP", "FP",
+    "FN", "TN"),
+  nrow=2, 
+  byrow = TRUE,
+  dimnames = list(predicted=c("positive", "negative"), actual=c("positive", "negative"))
+) -> binary.confusion
+```
+
+```{r comment=NA, echo=FALSE, eval=FALSE}
+noquote(binary.confusion)
+```
+
+## Eddy and Eddy.equal
+`Eddy` is a binary confusion matrix derived from Probabilistic reasoning in clinical medicine: Problems and opportunities [@tversky_probabilistic_1982]:
+
+```{r make-Eddy, echo=FALSE}
+Pos   <-    10     
+Neg   <-   990
+TPR   <-     0.792
+FPR   <-     0.096
+TP    <- round(Pos * TPR)
+FN    <- Pos - TP
+FP    <- round(Neg * FPR)
+TN    <- Neg - FP
+
+matrix(
+  c(TP, FP,
+    FN, TN),
+  nrow=2, 
+  byrow = TRUE,
+  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
+) -> Eddy
+```
+
+```{r comment=NA}
+Eddy
+```
+
+`Eddy.equal` is the confusion matrix we would expect if that classification system was applied to a sample of 1000 cases in which the prior probability of cancer was 50%:
+
+```{r make-Eddy.equal, echo=FALSE}
+Pos   <-   500     
+Neg   <-   500
+TPR   <-     0.792
+FPR   <-     0.096
+TP    <- round(Pos * TPR)
+FN    <- Pos - TP
+FP    <- round(Neg * FPR)
+TN    <- Neg - FP
+
+matrix(
+  c(TP, FP,
+    FN, TN),
+  nrow=2, 
+  byrow = TRUE,
+  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
+) -> Eddy.equal
+
+rm(Pos, Neg, TPR, FPR, TP, FN, FP, TN)
+```
+
+
+```{r comment=NA}
+Eddy.equal
+```
+
+## Wiki
+
+`Wiki` is a binary confusion matrix sourced from Wikipedia's [Likelihood_ratios_in_diagnostic_testing]( https://en.wikipedia.org/wiki/Likelihood_ratios_in_diagnostic_testing) in which there is a worked example of a diagnostic test with sensitivity 67% and specificity 91% applied to 2030 people to look for a disorder with a population prevalence of 1.48%
+
+```{r make-Wiki, echo=FALSE}
+matrix(
+  c(20,  180,
+    10, 1820),
+  nrow=2, 
+  byrow = TRUE,
+  dimnames = list(predicted=c("cancer", "benign"), actual=c("cancer", "benign"))
+) -> Wiki
+```
+
+```{r comment=NA}
+Wiki
+```
+
+## CAMDA
+
+`CAMDA` is a 23-class confusion matrix from a classifier we built for the 2020 CAMDA Challenge as described in our ISMB2020 conference paper [Metagenomic Geolocation using Read Signatures](https://www.iscb.org/cms_addon/conferences/ismb2020/tracks/camdacosi):
+
+
+```{r read-CAMDA, echo=FALSE}
+  read_csv("./data/CAMDA.csv", col_types = cols()) %$% 
+  table(predicted, actual) %>%
+  unclass() -> CAMDA
+```
+
+```{r comment=NA}
+options(width = 120)
+CAMDA
+```
+
+## CUP
+
+`CUP` is the 17-class confusion matrix shown in Figure 2 of [AI-based pathology predicts origins for cancers of unknown primary](https://www.nature.com/articles/s41586-021-03512-4):
+
+```{r read-CUP, echo=FALSE}
+
+
+read_csv("./data/CUP.csv", col_types = cols())   %>%
+  column_to_rownames('Organ') %>% 
+  as.matrix() -> CUP
+mode(CUP) <- "integer"
+dimnames(CUP) <- list(predicted=substr(rownames(CUP), 1, 4), actual=substr(colnames(CUP), 1, 4))
+```
+
+```{r show-CUP, comment=NA}
+options(width = 120)
+CUP
+```
+
+## HASY
+
+```{r}
+HASY.names <- fromJSON("./data/hasy.json")
+fromJSON("./data/confusion-matrix.json") %>% t() -> HASY
+dimnames(HASY) <- list(predicted=HASY.names, actual=HASY.names)
+```
+
+```{r}
+as.data.frame.table(HASY) %>% 
+  as_tibble() %>%
+  ggplot(aes(x=actual,y=predicted)) +
+  geom_raster(aes(fill=Freq)) +
+  #scale_fill_viridis() +
+  scale_fill_gradient(low="white", high="black") +
+  scale_y_discrete(limits=rev) +
+  coord_equal() +  theme_void()
+```
+
+
+# Save data as RDS
+
+```{r}
+saveRDS(binary.confusion, "./rds/binary.confusion.rds")
+saveRDS(Eddy,             "./rds/Eddy.rds")
+saveRDS(Eddy.equal,       "./rds/Eddy.equal.rds")
+saveRDS(Wiki,             "./rds/Wiki.rds")
+saveRDS(CAMDA,            "./rds/CAMDA.rds")
+saveRDS(CUP,              "./rds/CUP.rds")
+saveRDS(HASY,             "./rds/HASY.rds")
+```
+
+Clear the environment and reload the data
+```{r}
+rm(list=ls())
+
+readRDS("./rds/binary.confusion.rds") -> binary.confusion
+readRDS("./rds/Eddy.rds")             -> Eddy
+readRDS("./rds/Eddy.equal.rds")       -> Eddy.equal
+readRDS("./rds/Wiki.rds")             -> Wiki
+readRDS("./rds/CAMDA.rds")            -> CAMDA
+readRDS("./rds/CUP.rds")              -> CUP
+readRDS("./rds/HASY.rds")             -> HASY
+
+ls.str()
+```
+
+# References
