@@ -10,7 +10,7 @@ bibliography: VRES.json
 # Start with a clean environment
 rm(list=ls())
 
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, comment=NA)
 library(tibble)
 library(magrittr)
 library(readr)
@@ -389,6 +389,8 @@ readRDS("./rds/Wiki.rds")             -> Wiki
 readRDS("./rds/CAMDA.rds")            -> CAMDA
 readRDS("./rds/CUP.rds")              -> CUP
 readRDS("./rds/HASY.rds")             -> HASY
+readRDS("./rds/HASY.test.rds")        -> HASY.test
+readRDS("./rds/HASY.train.rds")       -> HASY.train
 ```
 
 
@@ -708,57 +710,116 @@ For binary classifiers, the diagnostic odds ratio is the same for both outcomes,
 
 # Example: larger confusion matrices
 
-`HASY` is a 369 $\times$ 369 confusion matrix.
+`HASY.train` and `HASY.test` are 369 $\times$ 369 confusion matrices derived from a classification system evaluated on training and testing data sets provided by Martin Thoma [-@thoma_hasyv2_2017]. These data are about HAndwritten SYmbols including ``the Latin uppercase and lowercase characters (A-Z,
+a-z), the Arabic numerals (0-9), 32 different types of arrows,
+fractal and calligraphic Latin characters, brackets and more", collected from [Detexify](https://detexify.kirelabs.org/classify.html) and [write-math.com](http://write-math.com/).
 
-```{r}
-HASY[1:26,1:26]
+Here is a section of the `HASY.train` confusion matrix. Note the confusion between `\\phi` ($\phi$) and `\\Phi` ($\Phi$):
+```{r echo=FALSE, comment=NA}
+HASY.train[84+1:10,84+1:10]
 ```
 
-```{r}
-OVA(HASY) -> HASY.OVA
+Viewing, and making sense of large confusion matrices in matrix form is a challenge. Typical approaches represent the confusion matrix as a heatmap or image like this:
 
-plot.BayesFactors.pos(HASY)
-```
+```{r echo=FALSE}
+all.names  <- row.names(HASY.train)
+some.names <- character(length(all.names))
+which.names <- seq(from=1, to=length(all.names), by=10)
+some.names[which.names] <- all.names[which.names]
 
-```{r eval=FALSE}
-ggplot(mutate(HASY.OVA, class   = fct_reorder(class, PLR)), aes(x=class)) +
-  geom_point(aes(y=PLR)) + 
-```
-
-```{r include=FALSE}
-C      <- CAMDA
-
-OVA(C) %>% 
-  mutate(
-    class=fct_reorder(class, PLR, .desc = TRUE)
-  ) -> C.OVA
-
-as.data.frame.table(C) %>%
+as.data.frame.table(HASY.train) %>% 
   as_tibble() %>%
-    mutate(
-    actual=factor(actual, levels=levels(C.OVA$class)),
-    predicted=factor(predicted,   levels=levels(C.OVA$class))
-  ) -> C.conf
+  ggplot(aes(x=actual,y=predicted)) +
+  geom_raster(aes(fill=Freq)) +
+  scale_fill_gradient(name="count", low="white", high="black") +
+  scale_x_discrete(            labels=   (some.names)) +
+  scale_y_discrete(limits=rev, labels=rev(some.names)) +
+  coord_equal() +
+  theme(
+    legend.justification=c(1,1), legend.position = c(1,1), 
+    axis.text.x  = element_text(angle=90, hjust=1, vjust=0.5),
+    axis.ticks.y = element_blank()) +
+  labs(caption="(NB. The axes labels show only the label of every tenth class for legibility.)")
+```
+...but it is hard to get a sense of how well the classifier is performing on this data.
 
-
+We can get more insight from plotting the priors, posteriors and likelihood ratios for each class versus all others:
+```{r}
+plot.BayesFactors.pos(HASY.train)
 ```
 
-```{r include=FALSE}
-read_csv("./data/CAMDA.csv") %$% table(predicted, actual) -> CAMDA.confusion
-C <- CAMDA.confusion
+We can also compare multiple confusion matrices using this approach. To do this, we calculate data frames (actually _tibbles_) containing the one-versus-all binary confusion matrix statistics for `HASY.train` and `HASY.test`
+```{r}
+OVA(HASY.train, ID="training") -> HASY.train.OVA
+OVA(HASY.test,  ID="testing")  -> HASY.test.OVA
+```
 
-OVA(C) %>% 
+then bind their rows together, and sort the `class` factor by the $\mathrm{LR+}$ observed on the _training_ data:
+```{r}
+rbind(HASY.train.OVA, HASY.test.OVA) %>% 
+  select(ID, class, TP, FP, FN, TN, prior.O, PLR, post.O) %>%
+  # Sort the `class` factor by the `PLR` values of the `train` data
+  # See https://stackoverflow.com/questions/54430898/
+  group_by(ID) %>%
   mutate(
-    class=fct_reorder(class, PLR, .desc = TRUE)
-  ) -> C.OVA
-
-as_tibble(C) %>%
-    mutate(
-    actual=factor(actual, levels=levels(C.OVA$class)),
-    predicted=factor(predicted,   levels=levels(C.OVA$class))
-  ) -> C.conf
-
-reorder_classes(C, C.OVA)
+    class = fct_reorder(
+      class, 
+      filter(., ID=="training") %>% pull(PLR)
+      )
+    ) %>%
+  ungroup() -> HASY.both.OVA
 ```
+
+so we can produce the following bespoke plot
+```{r plot-HASY.both.PLR}
+PLR.breaks <- 10^(0:5) # Choose some nice axis breaks
+
+ggplot(HASY.both.OVA, aes(x=PLR, y=class)) +
+  geom_vline(xintercept = 1, lty=2) +
+  geom_point(aes(colour=ID)) + 
+  scale_color_discrete(name="confusion matrix") +
+  scale_x_log10(limits=range(PLR.breaks), breaks=PLR.breaks, label=as.character(PLR.breaks), name="LR+") +
+  theme(legend.justification=c(0,1), legend.position = c(0.1,1), axis.ticks.y = element_blank())
+```
+
+```{r echo=FALSE}
+rm(PLR.breaks)
+```
+
+This clearly shows that the classifier performs better on the training data than the testing data, as we would expect. Furthermore, by plotting the $\mathrm{LR+}$ values, we see the intrinsic ability of the classifier to discriminate classes; we have removed the prior abundance of classes from this comparison.
+
+# Zero, infinity and NaN values of likelihood ratios
+
+Note there in the previous example, warnings were issued in this plotting process, reminding us that there are some classes in the confusion matrix that warrant further inspection.
+We can filter out the rows of the data that have `0`, `+Inf` and `NaN` (not a number) values of $\mathrm{LR+}$ and tabulate them
+```{r comment=NA}
+HASY.both.OVA %>% 
+  mutate(
+    `LR+`=factor(
+      case_when(
+      PLR==0      ~ "zero",
+      PLR==+Inf   ~ "+Inf",
+      is.nan(PLR) ~ "NaN.",           # Note the ".". Without it, table() exclude these values
+      TRUE ~ "+ve"),
+      levels=c("zero", "+ve", "+Inf", "NaN")
+    )
+  )  %$% table(ID, `LR+`)
+```
+$\mathrm{LR+} = 0$ in classes that had _no true positive_ but _some false positive_ predictions from the classifier:
+```{r}
+HASY.both.OVA %>% filter(PLR==0)
+```
+
+$\mathrm{LR+} = \infty$ in classes that had _some true positive_ but _no false positive predictions_ from the classifier:
+```{r}
+HASY.both.OVA %>% filter(PLR==+Inf)
+```
+
+$\mathrm{LR+} = \mathrm{NaN}$ in classes that had _no true positive_ and _no false positive predictions_ from the classifier:
+```{r}
+HASY.both.OVA %>% filter(is.nan(PLR))
+```
+
+
 
 # Bibliography
