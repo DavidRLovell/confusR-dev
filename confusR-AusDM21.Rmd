@@ -1,0 +1,1066 @@
+---
+title: "confusR for AusDM 21"
+author: "David Lovell"
+date: "20/08/2021"
+output: html_document
+bibliography: VRES.json
+---
+
+```{r setup, include=FALSE}
+# Start with a clean environment
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = TRUE, comment=NA)
+library(tibble)
+library(magrittr)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(patchwork)
+library(xtable)
+library(stringr)
+library(scales)
+```
+
+#### About this document
+
+This is a draft vignette for the `confusR` package. It serves as
+
+-   a place for me to try out code to go into that package
+-   a way to get feedback on the ideas and presentation of that package
+-   a place where I can put reminders about things I need to do in writing `confusR`.
+
+```{r function-as.Prob, echo=FALSE}
+# Given a vector of odds, return the corresponding probabilities
+as.Prob <- function(odds)  { odds /  (odds + 1)}
+```
+
+```{r function-as.Odds, echo=FALSE}
+# Given a vector of probabilities, return the corresponding odds
+as.Odds <- function(probs) {probs / (1 - probs)}
+```
+
+```{r function-OVA, echo=FALSE}
+OVA <- function(C, ID=1L){
+  # Given a square confusion matrix C, whose rows are the predictd class, and columns are the actual class
+  # take the i^th row and column C and form the binary ("one-vs-all", or OVA) confusion matrix.
+  # Let "A" be the name of the i^th row. Then
+  #            actual
+  # predicted  A  nA
+  #         A TP  FP
+  #        nA FN  TN  
+
+  tibble(
+    ID=factor(ID),                 # Useful if you want to rbind lots of results together
+    class=rownames(C),             # Class names
+    TP=unname(diag(C)),            # True positives
+    FP=unname(rowSums(C) - TP),    # False positives
+    FN=unname(colSums(C) - TP),    # False negatives
+    TN=sum(C) - TP - FP - FN,      # True negatives
+    Pos=TP+FN,                     # Number of actual positives
+    Neg=FP+TN,                     # Number of actual negatives
+    TPR=TP/Pos,                    # True Positive Rate
+    FPR=FP/Neg,                    # False Positive Rate
+    PLR=TPR/FPR,                   # Positive Likelihood Ratio (LR+)
+    TNR=TN/Neg,                    # True Negative Rate
+    FNR=FN/Pos,                    # False Negative Rate
+    NLR=FNR/TNR,                   # Negative Likelihood Ratio (LR-)
+    DOR=PLR/NLR,                   # Diagnostic Odds Ratio
+    prior.O=Pos/Neg,               # Prior odds of actual class being X
+    prior.P=as.Prob(prior.O),      # Prior probability of actual class being X
+    post.O=TP/FP,                  # Posterior odds that actual class is X (given prediction it is X)
+    post.P=as.Prob(post.O),        # Posterior probability that actual class is X (given prediction it is X)
+    prior.O.n=Neg/Pos,             # Prior odds of actual class NOT being X
+    prior.P.n=as.Prob(prior.O.n),  # Prior probability of actual class NOT being X
+    post.O.n=TN/FN,                # Posterior odds that actual class is NOT X (given prediction it is NOT X)
+    post.P.n=as.Prob(post.O.n)     # Posterior probability that actual class is NOT X (given prediction it is NOT X)
+  )
+}
+```
+
+```{r function-reprioritise.OVA, echo=FALSE}
+# Generate the one-vs-all confusion matrices for C, rescaled by the columns of `by`
+reprioritise.OVA <- function(C, by=NULL){
+  # If the `by` argument has not been supplied, make `by` a one column matrix of NAs
+  #C <- CAMDA
+  #by <- NULL
+  if(is.null(by))
+    by <- matrix(NA, nrow=nrow(C), ncol=1)
+  
+  if(nrow(C)  != ncol(C)) stop("C is not a square matrix")
+  if(nrow(by) != nrow(C)) stop("C and by don't have the same number of classes (rows)")
+  
+  rownames(by)  <- rownames(C)
+  
+  # Replace any NAs in `by` by their actual values in C
+  C.priors  <- matrix(colSums(C), nrow=nrow(by), ncol=ncol(by))
+  isNA      <- is.na(by)
+  by[isNA]  <- C.priors[isNA]
+  
+  # Calculate the one-vs-all confusion matrices for C
+  # This gives us the TPR and FPR we are going to use for our new actuals
+  C.OVA <- OVA(C)
+  
+  # Calculate the Pos and Neg
+  Neg <- -sweep(by, 2, STATS = colSums(by)) 
+
+  # Each row of Pos will be a different class
+  nClasses <- nrow(by)
+  # Each column of Pos will be a different set of Actual class values
+  nPriors <- ncol(by)
+  
+  tibble(
+    ID    = factor(rep(1:nPriors, rep(nClasses, nPriors))),
+    class = rep(C.OVA$class, nPriors),
+    TPR   = rep(C.OVA$TPR,   nPriors),
+    FPR   = rep(C.OVA$FPR,   nPriors),
+    Pos   = as.vector(by),
+    Neg   = as.vector(Neg),
+    TP    = Pos * TPR,
+    FN    = Pos - TP,
+    FP    = Neg * FPR,
+    TN    = Neg - FP,
+    PLR=TPR/FPR,                   # Positive Likelihood Ratio (LR+)
+    TNR=TN/Neg,                    # True Negative Rate
+    FNR=FN/Pos,                    # False Negative Rate
+    NLR=FNR/TNR,                   # Negative Likelihood Ratio (LR-)
+    DOR=PLR/NLR,                   # Diagnostic Odds Ratio
+    prior.O=Pos/Neg,               # Prior odds of actual class being X
+    prior.P=as.Prob(prior.O),      # Prior probability of actual class being X
+    post.O=TP/FP,                  # Posterior odds that actual class is X given prediction it is X
+    post.P=as.Prob(post.O),        # Posterior probability that actual class is X given prediction it is X
+    prior.O.n=Neg/Pos,             # Prior odds of actual class NOT being X
+    prior.P.n=as.Prob(prior.O.n),  # Prior probability of actual class NOT being X
+    post.O.n=TN/FN,                # Posterior odds that actual class is NOT X (given prediction it is NOT X)
+    post.P.n=as.Prob(post.O.n)     # Posterior probability that actual class is NOT X (given prediction it is NOT X)
+  ) %>%
+    # Order the columns as OVA() does
+    select(
+      ID, class, TP, FP, FN, TN, Pos, Neg, TPR, FPR, PLR, TNR, FNR, NLR, DOR,
+      prior.O,   prior.P,   post.O,   post.P,
+      prior.O.n, prior.P.n, post.O.n, post.P.n
+    )
+}
+```
+
+```{r function-rescale, echo=FALSE}
+rescale <- function(C, by=NULL){
+  if(is.null(by))
+    by <- rep(NA, nrow(C))
+  
+  if(length(by) != nrow(C)) stop("C and Pos don't have the same number of classes")
+  
+  C.priors     <- unname(rowSums(C))
+  scale.factor <- by / C.priors
+  scale.factor <- ifelse(is.na(scale.factor), 1, scale.factor)
+  
+  C.rescaled           <- C %*% diag(scale.factor)
+  dimnames(C.rescaled) <- dimnames(C)
+  # as.table(C.rescaled)
+  C.rescaled
+}
+```
+
+```{r function-rearrange, echo=FALSE}
+# Reorder the classes (rows and columns) of confusion matrix C to match the order of the classes in C.OVA
+# and return the result as a tibble that can be readily displayed using ggplot()
+reorder_classes <- function(C, C.OVA){
+  as.data.frame.table(C) %>%
+  as_tibble() %>%
+    mutate(
+    actual=factor(actual, levels=levels(C.OVA$class)),
+    predicted=factor(predicted,   levels=levels(C.OVA$class))
+  )
+}
+```
+
+```{r function-plot.BayesFactors.pos, echo=FALSE}
+plot.BayesFactors.pos <- function(C, sort.by="LR+", show.arrows=FALSE, arrow.length=5, arrow.size=1.5, legend.pos=NULL, log.range=NULL, skip=0, trunc.label=12){
+  OVA(C) %>%
+    select(class, PLR, prior.O, post.O) %>%
+    mutate(
+      class   = fct_reorder(
+        class,
+        # https://community.rstudio.com/t/use-fct-reorder-function-inside-case-when-function-in-shiny-app/70069
+        case_when(
+          sort.by=="prior" ~ prior.O,
+          sort.by=="post"  ~ post.O,
+          sort.by=="LR+.prior" ~ as.numeric(order(order(PLR, prior.O))),
+          TRUE             ~ PLR),
+        .desc = FALSE),
+      PLR     = log10(PLR),
+      prior.O = log10(prior.O),
+      post.O  = log10(post.O)
+    ) %>% 
+    pivot_longer(cols=-class, names_to="variable") %>%
+    mutate(
+      variable=fct_relevel(variable, "prior.O")
+    ) -> C.OVA
+  
+  C.OVA %>% 
+    pivot_wider(class, names_from = "variable") -> C.arrows
+  
+  # Work out the scale to plot the values on
+  filter(C.OVA, variable!="PLR", !is.infinite(value), !is.nan(value)) %>% pull(value) %>% abs() %>% max() * 2 -> log.prob.range
+  filter(C.OVA, variable=="PLR", !is.infinite(value), !is.nan(value)) %>% pull(value) %>% abs() %>% max()     -> log.lr.range
+  if(is.null(log.range))  log.range <- ceiling(max(log.prob.range, log.lr.range, 2)) + 1
+  if(log.range %% 2 != 1) log.range <- log.range + 1
+  
+  half.log.range <- (log.range - 1)/2
+  
+  PLRs  <- 10^(0:ceiling(log.lr.range))
+  probs <- c(10^(-half.log.range:-1), 0.5, 1 - 10^(-1:-half.log.range))
+
+  pow10 <- function(x) {
+    #    parse(text=gsub("([0-9]+)e\\+", "10^\\1", scales::scientific_format()(x)))
+  parse(text=gsub("1e\\+0", "10^", scales::scientific_format()(x)))
+  }
+
+  
+  # Plot the left hand panel
+  ggplot(data=filter(C.OVA, variable!="PLR"), aes(x=class)) -> p1
+  if(show.arrows){
+    p1 <- p1 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=prior.O, yend=post.O),
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
+  }
+  p1 + geom_crossbar(aes(y=value, ymin=value, ymax=value, group=variable, color=variable), fatten=2) +
+    scale_x_discrete(
+      breaks = levels(C.OVA$class)[c(T, rep(F, skip))],
+      label = function(x) stringr::str_trunc(x, trunc.label)
+    ) +
+    scale_y_continuous(breaks=log10(as.Odds(probs)), labels = as.character(probs), name="probability") +
+    scale_color_discrete(name="class probability", labels=c("prior", "posterior"), guide = guide_legend(reverse = FALSE)) +
+    coord_flip(ylim=c(-log.range,log.range)/2) -> p1
+  if(is.null(legend.pos)){p1 <- p1 + theme(legend.position = "none")}
+  else{                   p1 <- p1 + theme(legend.justification=legend.pos, legend.position = legend.pos)}
+  
+  # plot the right hand panel
+  ggplot(data=filter(C.OVA, variable=="PLR"), aes(x=class, y=value)) -> p2
+  if(show.arrows){
+    p2 <- p2 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=0, yend=PLR),
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size)
+  }
+  p2 + geom_hline(yintercept = 0, lty=2) +
+    geom_crossbar(aes(ymin=value, ymax=value), fatten=2) +
+    scale_x_discrete(
+      position="top",
+      breaks = levels(C.OVA$class)[c(T, rep(F, skip))],
+      label = function(x) stringr::str_trunc(x, trunc.label)
+    ) +
+    scale_y_continuous(
+      name = "LR+",
+      breaks = log10(PLRs),
+      labels =label_math(10^.x)
+    )+
+
+    #scale_y_continuous(
+      #breaks=log10(PLRs),
+      #labels = as.character(PLRs),
+      #labels = pow10,
+      #name="LR+") +
+    coord_flip(ylim=c(0,log.range)) +
+    theme(legend.position = "none") -> p2
+  
+  p1 + p2 + plot_layout(widths=c(1,1))
+}
+```
+
+```{r function-plot.BayesFactors.neg, echo=FALSE}
+plot.BayesFactors.neg <- function(C, sort.by="LR-", show.arrows=FALSE, arrow.length=5, arrow.size=1.5, legend.pos=NULL){
+  #C <- CAMDA
+  OVA(C) %>%
+    select(class, NLR, prior.O.n, post.O.n) %>%
+    mutate(
+      class   = fct_reorder(
+        class,
+        # https://community.rstudio.com/t/use-fct-reorder-function-inside-case-when-function-in-shiny-app/70069
+        case_when(
+          sort.by=="prior" ~ prior.O.n,
+          sort.by=="post"  ~ post.O.n,
+          TRUE             ~ 1/NLR),
+        .desc = FALSE),
+      NLR     = log10(NLR),
+      prior.O.n = log10(prior.O.n),
+      post.O.n  = log10(post.O.n)
+    ) %>% 
+    pivot_longer(cols=-class, names_to="variable") %>%
+    mutate(
+      variable=fct_relevel(variable, "prior.O.n")
+    ) -> C.OVA
+  
+  C.OVA %>% 
+    pivot_wider(class, names_from = "variable") -> C.arrows
+  
+  # Work out the scale to plot the values on
+  filter(C.OVA, variable!="NLR", !is.infinite(value)) %>% pull(value) %>% abs() %>% max() * 2 -> log.prob.range
+  filter(C.OVA, variable=="NLR", !is.infinite(value)) %>% pull(value) %>% abs() %>% max()     -> log.lr.range
+  log.range <- ceiling(max(log.prob.range, log.lr.range, 2)) + 1
+  if(log.range %% 2 != 1) log.range <- log.range + 1
+  
+  half.log.range <- (log.range - 1)/2
+  
+  NLRs  <- 10^(-ceiling(log.lr.range):0)
+  probs <- c(10^(-half.log.range:-1), 0.5, 1 - 10^(-1:-half.log.range))
+  labels.bar <- parse(text= paste("bar(\"", levels(C.OVA$class), "\")", sep="") )
+  
+  # Plot the left hand panel
+  ggplot(data=filter(C.OVA, variable!="NLR"), aes(x=class)) -> p1
+  if(show.arrows){
+    p1 <- p1 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=prior.O.n, yend=post.O.n),
+      lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
+  }
+  p1 +
+    geom_crossbar(aes(y=value, ymin=value, ymax=value, group=variable, color=variable), fatten=2) +
+    scale_x_discrete(name=expression(bar(class)), labels=labels.bar) +
+    scale_y_continuous(breaks=log10(as.Odds(probs)), labels = as.character(probs), name="probability") +
+    scale_color_discrete(name=expression(bar(class)~probability), labels=c("prior", "posterior"), guide = guide_legend(reverse = FALSE)) +
+    coord_flip(ylim=c(-log.range,log.range)/2) -> p1
+  if(is.null(legend.pos)){p1 <- p1 + theme(legend.position = "none")}
+  else{                   p1 <- p1 + theme(legend.justification=legend.pos, legend.position = legend.pos)}
+  
+  # plot the right hand panel
+  ggplot(data=filter(C.OVA, variable=="NLR"), aes(x=class, y=value)) -> p2
+  if(show.arrows){
+    p2 <- p2 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=NLR, yend=0),
+      lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size)
+  }
+  p2 +
+    geom_hline(yintercept = 0, lty=2) +
+    geom_crossbar(aes(ymin=value, ymax=value), fatten=2) +
+    scale_x_discrete(position="top", name=expression(bar(class)), labels=labels.bar) +
+    scale_y_continuous(breaks=log10(NLRs), labels = as.character(NLRs),name="LR-") +
+    coord_flip(ylim=c(-log.range,0)) +
+    theme(legend.position = "none") -> p2
+  
+  p1 + p2 + plot_layout(widths=c(1,1))
+}
+```
+
+```{r function-plot.DOR, echo=FALSE}
+plot.DOR <- function(C, sort.by="DOR", show.arrows=FALSE, arrow.length=5, arrow.size=1.5, legend.pos=NULL){
+  C <- CUP
+  sort.by <- "DOR"
+  OVA(C) %>%
+    select(class, NLR, PLR, DOR) %>%
+    mutate(
+      class   = fct_reorder(
+        class,
+        # https://community.rstudio.com/t/use-fct-reorder-function-inside-case-when-function-in-shiny-app/70069
+        case_when(
+          sort.by=="LR+" ~ PLR,
+          sort.by=="LR-" ~ 1/NLR,
+          TRUE           ~ DOR),
+        .desc = FALSE)#,
+    ) %>% 
+    pivot_longer(cols=-class, names_to="variable") %>%
+    mutate(
+      variable=fct_relevel(variable, c("NLR", "PLR", "DOR")),
+      value=log10(value)
+    ) -> C.OVA
+  
+  
+  
+  C.OVA %>% 
+    pivot_wider(class, names_from = "variable") -> C.arrows
+  
+  ggplot(C.OVA, aes(x=class)) -> p1
+  if(show.arrows){
+    p1 <- p1 + 
+      geom_segment(
+        data=C.arrows,
+        aes(xend=class, y=NLR, yend=0),
+        lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) +
+      geom_segment(
+        data=C.arrows,
+        aes(xend=class, y=PLR, yend=DOR),
+        lineend="butt", linejoin = "bevel", arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
+  }
+  
+  p1 + geom_hline(yintercept = 0, lty=2) +
+    geom_crossbar(aes(y=value, ymin=value, ymax=value, group=variable, color=variable), fatten=2) +
+    #scale_y_log10(name="likelihoods and diagnostic odds ratios") +
+    scale_y_continuous(name="likelihoods and diagnostic odds ratios", labels =label_math(10^.x)) +
+    # Fix this up so that it shows 10^  notation
+    scale_color_discrete(name="ratio", labels=c("LR-", "LR+", "DOR"))+
+    coord_flip() -> p1
+  if(is.null(legend.pos)){p1 <- p1 + theme(legend.position = "none")}
+  else{                   p1 <- p1 + theme(legend.justification=legend.pos, legend.position = legend.pos)}
+  p1
+}
+```
+
+```{r function-OVA.confusion, echo=FALSE}
+OVA.confusion <- function(C, Class){
+  Classnames  <- c(Class, sprintf("n.%s", Class))
+  OVA(C) %>% 
+    filter(class==Class) %>%
+    select(TP, FP, FN, TN) %>%
+    unlist() %>%
+    matrix(
+      nrow=2, 
+      byrow = TRUE,
+      dimnames = list(predicted=Classnames, actual=Classnames)
+    )
+}
+```
+
+```{r read-data, echo=FALSE}
+readRDS("./rds/binary.confusion.rds") -> binary.confusion
+readRDS("./rds/Eddy.rds")             -> Eddy
+readRDS("./rds/Eddy.equal.rds")       -> Eddy.equal
+readRDS("./rds/Wiki.rds")             -> Wiki
+readRDS("./rds/CAMDA.rds")            -> CAMDA
+readRDS("./rds/CUP.rds")              -> CUP
+readRDS("./rds/HASY.rds")             -> HASY
+readRDS("./rds/HASY.test.rds")        -> HASY.test
+readRDS("./rds/HASY.train.rds")       -> HASY.train
+```
+
+
+```{r tests, include=FALSE, eval=FALSE}
+OVA(Eddy) %>% select(class, post.P)
+OVA(Wiki) -> Wiki.OVA
+round(Wiki.OVA %>% select(-class) %>% slice(1) %>% unlist(), 4)
+
+all.equal(OVA(CAMDA), reprioritise.OVA(CAMDA))
+```
+
+# Motivation: understanding multinomial classifier performance
+
+> Binary models have well established measures of performance (e.g., precision, accuracy). With multinomial classification methods, it is not so simple.\
+> What measures exist for assessing and describing performance of multinomial classification models, and how can we express those measures in a way that is interpretable by non-data-scientists?\
+> --- Brendan Langfield
+
+As organisations seek to develop and deploy more complex classification systems, there is a growing need for understanding and transparency in model development, as well as a requirement to explain how the models are operating. Similar to assessment in educational settings, we can think about performance assessment of classification systems with two ends in mind:
+
+
+
+
+# Approach: use Bayes rule with odds
+
+Grant Sanderson suggests that we can better understand the discriminative performance of a model by expressing Bayes' rule in terms of prior odds and Bayes factors [@3blue1brown_medical_2020].
+
+Suppose we have a hypothesis $\mathrm{D}$ that a person actually has a disease, and some evidence $\mathrm{T}$ in about that in the form of a positive test result for that disease. Often we want to know *"if I have a positive test result, what's the chance that I actually have the disease"*. Usually this is written symbolically in terms of *probabilities* as:
+$$
+\mathrm{P(D|T)} = \frac{\mathrm{P(T|D)P(D)}}{\mathrm{P(T|D)P(D)}+\mathrm{P(T|\overline{D})P(\overline{D})}}
+$$
+...but Sanderson extols the merits of writing this using *odds*:
+$$
+\begin{align}
+\mathrm{O(D|T)} &= \mathrm{O(D)} \frac{\mathrm{P(T|D)}}{\mathrm{P(T|\overline{D})}}\\
+&= \mathrm{O(D)} \frac{\text{True positive rate}}{\text{False positive rate}}
+\end{align}
+$$
+where the ratio is the *Bayes factor* of the test for a positive result. This factor represents how our prior odds of having the disease are *updated* as a result of the test outcome. It is also known as the *likelihood ratio of a positive outcome* (or *LR+* for short).
+
+In the language of statistics,
+
+-   the *posterior* odds (your odds of having the disease *after* you have had a test which predicted that you have the disease)
+
+equals
+
+-   the *prior* odds (your odds of having the disease)
+
+multiplied by
+
+-   the *Bayes factor* for the test to predict whether you have the disease
+
+or, more succinctly
+
+$$
+\begin{align}
+\text{posterior odds} &= \text{prior odds} \times \text{Bayes factor for a positive outcome}\\[2ex]
+&= \text{prior odds} \times \frac{\text{True positive rate}}{\text{False positive rate}}
+\end{align}
+$$
+
+If we visualise these terms on a logarithmic scale, we can exploit the fact that
+
+$$
+\begin{align}
+\log(\text{posterior odds}) &= \log(\text{prior odds}) + \log(\text{Bayes factor for a positive outcome})
+\end{align}
+$$
+
+...let's see how, starting with a well-known example.
+
+# Example: Visualising binary confusion matrices
+
+David M. Eddy [-@tversky_probabilistic_1982] gives an example of a diagnostic test for breast cancer where the test had
+
+-   a true positive rate of 79.2%
+-   a false positive rate of 9.6%
+
+and the prior probability of breast cancer was assumed to be 1%.
+
+Eddy asked physicians to estimate the probability of actually having cancer given a prediction of cancer from the test.
+
+If you have not seen this example, I recommend you watch Luana Micallef's [-@luana_micallef_explaining_2012] telling of it right now before I spoil the surprising answer.
+
+Here's the confusion matrix we would expect if we applied this test to 1000 patients:
+
+```{r comment=NA}
+Eddy
+```
+
+and here is how we refer to the cells in a binary confusion matrix, i.e., true positive (TP), false positive (FP), false negative (FN), true negative (FN):
+
+```{r comment=NA, echo=FALSE}
+noquote(binary.confusion)
+```
+
+So, with this confusion matrix, the probability of actually having cancer given a prediction of cancer by the test is $$
+\begin{align}
+\mathrm{P}(\text{actually having cancer }|\text{ test predicts cancer}) &= \frac{\text{TP}}{\text{TP}+\text{FP}}\\
+&= \frac{`r Eddy["cancer", "cancer"]`}{`r Eddy["cancer", "cancer"]`+`r Eddy["cancer", "benign"]`}\\[1.5ex]
+&= `r round(100 * Eddy["cancer", "cancer"]/(Eddy["cancer", "cancer"] + Eddy["cancer", "benign"]), 2)`\%
+\end{align}
+$$
+
+The surprise (for most people) is that a test with a true positive rate of 79.2% and false positive rate of 9.6% has such a low probability of actually being right. The reason for this counter-intuitive outcome is that the *prior* probability of cancer is rare (1%), so when the test is positive, it is usually a *false* positive.
+
+Let's change the prior probability of cancer and see how the same test performs. Here is the confusion matrix of the same diagnostic test applied to 1000 patients who have a 50% prior probability of breast cancer:
+
+```{r comment=NA}
+Eddy.equal
+```
+
+With this set of patients, the probability of actually having cancer given a prediction of cancer by the test is $$
+\begin{align}
+\mathrm{P}(\text{actually having cancer }|\text{ test predicts cancer}) &= \frac{\text{TP}}{\text{TP}+\text{FP}}\\
+&= \frac{`r Eddy.equal["cancer", "cancer"]`}{`r Eddy.equal["cancer", "cancer"]`+`r Eddy.equal["cancer", "benign"]`}\\[1.5ex]
+&= `r round(100 * Eddy.equal["cancer", "cancer"]/(Eddy.equal["cancer", "cancer"] + Eddy.equal["cancer", "benign"]), 2)`\%
+\end{align}
+$$
+
+Same test, but the new confusion matrix shows the probability the test's prediction of cancer is correct has increased dramatically.
+
+For many people, this is confusing. How can the same test have such a different probability of being right in these two scenarios? To make sense of this, we suggest using the odds formulation of Bayes rule, i.e.,
+
+$$
+\begin{align}
+\text{posterior odds of cancer} &= \text{prior odds of cancer} \times \text{Bayes factor of test for cancer}\\[2ex]
+&= \text{prior odds of cancer} \times \frac{\text{True positive rate}}{\text{False positive rate}}
+\end{align}
+$$
+
+to split apart
+
+1.  the effect of the abundance of different classes in the test set, i.e., the prior prevalence of cancer
+2.  the effect of classifier, i.e., its innate ability to discriminate cancer from benign cases.
+
+Here is a plot which shows that split
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(Eddy, show.arrows=TRUE, legend.pos=c(0,0))
+```
+
+```{r echo=FALSE}
+OVA(Eddy) -> Eddy.OVA
+```
+
+In the above plot (which is on a log scale)
+
+-   The left panel shows prior probabilities of cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(prior.P)`) and benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(prior.P)`) in red
+-   The right panel shows on the same scale the Bayes factors of the test for cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(PLR) %>% round(3)`), and for benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(PLR) %>% round(3)`)
+-   The left panel shows shows the posterior probabilities of cancer (`r Eddy.OVA %>% filter(class=="cancer") %>% pull(post.P) %>% round(3)`) and benign (`r Eddy.OVA %>% filter(class=="benign") %>% pull(post.P) %>% round(3)`) in blue.
+-   The black arrows in the left panel show $$
+    \begin{align}
+    \log(\text{posterior odds of cancer}) &= \log(\text{prior odds of cancer}) + \log(\text{Bayes factor of test for cancer})
+    \end{align}
+    $$
+-   The black arrows in the right panel show $\log(\text{Bayes factor of test for cancer})$
+
+In other words,
+
+1.  the left panel shows the prior odds of cancer and the effect that the classifier has on updating those odds
+2.  the right panel shows the effect of classifier alone.
+
+Now let's use this same plotting technique on the confusion matrix of the same diagnostic test applied to 1000 patients who have a 50% prior probability of breast cancer:
+
+```{r comment=NA}
+Eddy.equal
+```
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(Eddy.equal, show.arrows=TRUE, legend.pos=c(0,0), log.range=7)
+```
+
+-   See how the probabilities in the left panel changes as the prior probability of cancer changes to 0.5?
+-   See how the Bayes factors in the right panel stay the same? The test itself has not changed.
+
+This approach separates the characteristics of the classifier from the prior distribution of the classes it is applied to. Now let's look at how this approach can be applied to multinomial classification systems.
+
+## Figures for publication
+
+```{r broken-xtable, eval=FALSE}
+NAmatrix <- matrix(c(NA, 2:4), nrow=2, byrow=TRUE)
+options(xtable.NA.string = "-")
+xtable(NAmatrix)
+print(xtable(NAmatrix), NA.string="*")
+xtableFtable(ftable(NAmatrix))
+print(xtableFtable(ftable(NAmatrix)), NA.string = "*")
+```
+
+
+
+```{r}
+make_latex_table <- function(x, file, rotate=FALSE){
+  x[which(x==0)] <- NA
+  ftable(x) %>% xtableFtable(method = "compact") -> x.table
+  
+  print(x.table,
+        floating=FALSE,
+        rotate.colnames = rotate, 
+        print.results = FALSE
+  ) %>%
+    str_replace_all("NA", "  ") %>% 
+    cat(file = file)
+}
+```
+
+```{r}
+make_latex_table(Eddy, "./tables/table.Eddy.tex", rotate=TRUE)
+make_latex_table(Eddy.equal, "./tables/table.Eddy.equal.tex", rotate=TRUE)
+make_latex_table(CUP, "./tables/table.CUP.tex", rotate=TRUE)
+```
+
+
+```{r}
+as_tibble(Eddy, rownames="predicted") %>%
+  pivot_longer(-predicted, names_to = "actual") %>% 
+  ggplot(aes(x=actual, y=predicted)) + geom_text(aes(label=value))
+```
+
+
+```{r function-plot.binary.BayesFactors.pos, echo=FALSE}
+plot.binary.BayesFactors.pos <- function(C, sort.by="LR+", show.arrows=FALSE, arrow.length=5, arrow.size=1.5, legend.pos=NULL, log.range=NULL){
+  OVA(C) %>%
+    select(class, PLR, prior.O, post.O) %>%
+    mutate(
+      class   = fct_reorder(
+        class,
+        # https://community.rstudio.com/t/use-fct-reorder-function-inside-case-when-function-in-shiny-app/70069
+        case_when(
+          sort.by=="prior" ~ prior.O,
+          sort.by=="post"  ~ post.O,
+          TRUE             ~ PLR),
+        .desc = FALSE),
+      PLR     = log10(PLR),
+      prior.O = log10(prior.O),
+      post.O  = log10(post.O)
+    ) %>% 
+    pivot_longer(cols=-class, names_to="variable") %>%
+    mutate(
+      variable=fct_relevel(variable, "prior.O")
+    ) -> C.OVA
+  
+  C.OVA %>% 
+    pivot_wider(class, names_from = "variable") -> C.arrows
+  
+  # Work out the scale to plot the values on
+  filter(C.OVA, variable!="PLR", !is.infinite(value), !is.nan(value)) %>% pull(value) %>% abs() %>% max() * 2 -> log.prob.range
+  filter(C.OVA, variable=="PLR", !is.infinite(value), !is.nan(value)) %>% pull(value) %>% abs() %>% max()     -> log.lr.range
+  if(is.null(log.range))  log.range <- ceiling(max(log.prob.range, log.lr.range, 2)) + 1
+  if(log.range %% 2 != 1) log.range <- log.range + 1
+  
+  half.log.range <- (log.range - 1)/2
+  
+  PLRs  <- 10^(0:ceiling(log.lr.range))
+  probs <- c(10^(-half.log.range:-1), 0.5, 1 - 10^(-1:-half.log.range))
+  
+  # Hack
+  as_tibble(C, rownames="predicted") %>%
+    pivot_longer(-predicted, names_to = "actual") %>% 
+    mutate(
+      actual=fct_relevel(actual, "cancer"),
+      name=c("TP", "FP", "FN", "TN")
+    ) %>% 
+  ggplot(aes(x=actual, y=predicted)) + 
+    geom_text(aes(label=name), size=15, color="white", fontface = "bold") +
+    geom_text(aes(label=value), size=8) -> p0
+  
+  
+  # Plot the left hand panel
+  ggplot(data=filter(C.OVA, variable!="PLR"), aes(x=class)) -> p1
+  if(show.arrows){
+    p1 <- p1 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=prior.O, yend=post.O),
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size) 
+  }
+  p1 + geom_crossbar(aes(y=value, ymin=value, ymax=value, group=variable, color=variable), fatten=2) +
+    scale_y_continuous(breaks=log10(as.Odds(probs)), labels = as.character(probs), name="probability") +
+    scale_color_discrete(name="class probability", labels=c("prior", "posterior"), guide = guide_legend(reverse = FALSE)) +
+    coord_flip(ylim=c(-log.range,log.range)/2) +
+    theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y=element_blank())-> p1
+  if(is.null(legend.pos)){p1 <- p1 + theme(legend.position = "none")}
+  else{                   p1 <- p1 + theme(legend.justification=legend.pos, legend.position = legend.pos)}
+  
+  
+
+  # plot the right hand panel
+  ggplot(data=filter(C.OVA, variable=="PLR"), aes(x=class, y=value)) -> p2
+  if(show.arrows){
+    p2 <- p2 + geom_segment(
+      data=C.arrows,
+      aes(xend=class, y=0, yend=PLR),
+      lineend="butt", linejoin = "bevel",
+      arrow = arrow(length = unit(arrow.length, "mm")), size=arrow.size)
+  }
+  p2 + geom_hline(yintercept = 0, lty=2) +
+    geom_crossbar(aes(ymin=value, ymax=value), fatten=2) +
+    scale_x_discrete(position="top") +
+    scale_y_continuous(breaks=log10(PLRs), labels = as.character(PLRs),name="LR+") +
+    coord_flip(ylim=c(0,log.range)) +
+    theme(legend.position = "none", axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y=element_blank()) -> p2
+  
+  p0 + p1 + p2 + plot_layout(widths=c(1,1,1))
+}
+```
+
+```{r}
+scalefactor <- 1
+
+plot.binary.BayesFactors.pos(Eddy, show.arrows=TRUE, legend.pos=c(0,0), arrow.length=4, arrow.size=1.25, log.range=5)
+ggsave("plots/plot.Eddy.pdf", width = 7* scalefactor, height=2.6 * scalefactor)
+
+plot.binary.BayesFactors.pos(Eddy.equal, show.arrows=TRUE, legend.pos=NULL, arrow.length=4, arrow.size=1.25, log.range=5)
+ggsave("plots/plot.Eddy.equal.pdf", width = 7* scalefactor, height=2.6 * scalefactor)
+```
+
+# Approach: use one-versus-all to partition multinomial confusion matrices
+
+We've just looked at a binary classification system in which a test can make one of two possible predictions, cancer or benign. Multinomial classification systems make predictions of 1-out-of-$C$ classes, where $C > 2$.
+
+-   We use the term "classification system" because multinomial classifiers may comprise multiple base classifiers (e.g., binary classifiers) whose outputs are combined to produce a single prediction.
+
+Here's an example confusion matrix from a multinomial classifier with 17 classes
+
+```{r show-CUP.2, echo=FALSE, comment=NA}
+options(width = 120)
+CUP
+```
+
+This summarises the predictions that a classification system made about examples whose actual classes were known. This 17 $\times$ 17 matrix can be summarised further by forming the 17 *binary* confusion matrices of each class versus all other classes, e.g.,
+
+```{r echo=FALSE, comment=NA}
+OVA.confusion(CUP, "Lung")
+OVA.confusion(CUP, "Brea")
+```
+
+...through to...
+
+```{r echo=FALSE, comment=NA}
+OVA.confusion(CUP, "Cerv")
+```
+
+# Example: visualising multinomial confusion matrices
+
+Once we have summarised a $C\times C$ confusion matrix as $C$ binary one-versus-all confusion matrices, we can visualise the prior, posterior and Bayes factor for each class versus all others like so:
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
+```
+
+This can be sorted by prior class probability
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(CUP, sort.by="prior")
+```
+
+...or by posterior class probability
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(CUP, sort.by="post")
+```
+
+Note the estimated Bayes factors for the classes `Thyr` and `Adre` are infinite; the posterior probability of actually being `Thyr` given a prediction of `Thyr` is 1 and this value is off the right of the scale in the left panel.
+
+## Figures for publication
+
+```{r echo=TRUE}
+plot.BayesFactors.pos(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
+ggsave("plots/plot.CUP.LR.pdf", width = 7* scalefactor, height=3.5 * scalefactor)
+
+plot.BayesFactors.pos(CUP, sort.by="prior")
+ggsave("plots/plot.CUP.prior.pdf", width = 7* scalefactor, height=3.5 * scalefactor)
+
+plot.BayesFactors.pos(CUP, sort.by="post")
+ggsave("plots/plot.CUP.post.pdf", width = 7* scalefactor, height=3.5 * scalefactor)
+
+```
+
+
+# Example: CAMDA
+
+Here's another example of a different (23 $\times$ 23) confusion matrix in which we see a class (`LIS`) that is *never* predicted correctly:
+
+```{r show-CAMDA.2, comment=NA, echo=FALSE}
+options(width = 120)
+CAMDA
+```
+
+and in this situation, the posterior probability and Bayes factor for `LIS` versus all other classes are off the *left* of the scale
+
+```{r echo=FALSE}
+plot.BayesFactors.pos(CAMDA, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
+```
+
+# Example: visualising the likelihood of a negative outcome
+
+So far, we have been working with the odds formulation of Bayes rule for a positive outcome, i.e., the odds of actually having a disease given that the test predicts that you do $\mathrm{O(D|T)}$ : $$
+\begin{align}
+\mathrm{O(D|T)} &= \mathrm{O(D)} \frac{\mathrm{P(T|D)}}{\mathrm{P(T|\overline{D})}}\\
+&= \mathrm{O(D)} \frac{\text{True positive rate}}{\text{False positive rate}}
+\end{align}
+$$ where the ratio is the *Bayes factor* of the test for a positive result, i.e., the *likelihood ratio of a positive outcome* ( *LR+* ).
+
+We can also work with the odds formulation for a *negative* outcome, i.e., the odds that you *do not* have the disease given that the test predicts that you do not: $\mathrm{O(\overline{D}|\overline{T})}$.
+
+In that case
+
+$$
+\begin{align}
+\mathrm{O(\overline{D}|\overline{T})} &= \mathrm{O(\overline{D})} \frac{\mathrm{P(\overline{T}|\overline{D})}}{\mathrm{P(\overline{T}|D)}}\\
+&= \mathrm{O(\overline{D})} \frac{\text{True negative rate}}{\text{False negative rate}}
+\end{align}
+$$ where the ratio $$
+\frac{\text{True negative rate}}{\text{False negative rate}} = \frac{1}{\text{Bayes factor for a negative outcome}}.
+$$ The *Bayes factor* of the test for a negative result is also known as the *likelihood ratio of a negative outcome* (or *LR-* for short).
+
+Here is how the odds of negative outcomes look for each type of cancer of unknown primary
+
+```{r}
+plot.BayesFactors.neg(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1)
+
+ggsave("plots/plot.CUP.LRN.pdf", width = 7* scalefactor, height=3.5 * scalefactor)
+
+```
+
+Note that because of there are 17 classes in this scenario, the prior probability of an example *not* being from a specific class is high.
+
+Here are the Bayes factor plots for the `Eddy` data, first, for a negative outcome...
+
+```{r}
+plot.BayesFactors.neg(Eddy, show.arrows = TRUE, legend.pos = c(0,0))
+```
+
+...then for the positive outcome.
+
+```{r}
+plot.BayesFactors.pos(Eddy, show.arrows = TRUE, legend.pos = c(0,0))
+```
+
+# Example: visualising the diagnostic odds ratio
+
+The *diagnostic odds ratio* (DOR) [@glas_diagnostic_2003] combines the Bayes factors (likelihood ratios) for the positive result (LR+) and the negative result (LR-) of a binary test: $$
+\begin{align}
+\mathrm{DOR} &= \frac{\mathrm{LR+}}{\mathrm{LR-}}\\
+&= \frac{\text{True positive rate}}{\text{False positive rate}}\cdot\frac{\text{True negative rate}}{\text{False negative rate}}
+\end{align}
+$$
+
+so taking logs we can write $$
+\log(\mathrm{DOR}) = \log(\mathrm{LR+}) + \log(1/\mathrm{LR-})
+$$
+
+which we can visualise as
+
+```{r}
+plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0))
+ggsave("plots/plot.CUP.DOR.pdf", width = 3.5* scalefactor, height=3.5 * scalefactor)
+
+```
+
+Here the arrows emphasise that $\log(1/\mathrm{LR-})=-\log(\mathrm{LR-})$ is added to $\log(\mathrm{LR+})$ to get $\log(\mathrm{DOR})$.
+
+We can sort the classes by LR+ or LR-:
+
+```{r}
+plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0), sort.by = "LR+")
+plot.DOR(CUP, show.arrows = TRUE, arrow.length = 2.5, arrow.size = 1, legend.pos = c(1,0), sort.by = "LR-")
+```
+
+For binary classifiers, the diagnostic odds ratio is the same for both outcomes, emphasisng that the confusion matrix has four numbers and three degrees of freedom: neither LR+ or LR- completely summarise the confusion matrix. Only DOR does that (by arbitrarily dividing LR+/LR-)
+
+# Example: larger confusion matrices
+
+`HASY.train` and `HASY.test` are 369 $\times$ 369 confusion matrices derived from a classification system evaluated on training and testing data sets provided by Martin Thoma [-@thoma_hasyv2_2017]. These data are about HAndwritten SYmbols including ``the Latin uppercase and lowercase characters (A-Z,
+a-z), the Arabic numerals (0-9), 32 different types of arrows,
+fractal and calligraphic Latin characters, brackets and more", collected from [Detexify](https://detexify.kirelabs.org/classify.html) and [write-math.com](http://write-math.com/).
+
+Here is a section of the `HASY.train` confusion matrix. Note the confusion between `\\phi` ($\phi$) and `\\Phi` ($\Phi$):
+```{r echo=FALSE, comment=NA}
+HASY.train[84+1:10,84+1:10]
+```
+
+Viewing, and making sense of large confusion matrices in matrix form is a challenge. Typical approaches represent the confusion matrix as a heatmap or image like this:
+
+```{r echo=FALSE}
+all.names  <- row.names(HASY.train)
+some.names <- character(length(all.names))
+which.names <- seq(from=1, to=length(all.names), by=10)
+some.names[which.names] <- all.names[which.names]
+
+as.data.frame.table(HASY.train) %>% 
+  as_tibble() %>%
+  ggplot(aes(x=actual,y=predicted)) +
+  geom_raster(aes(fill=Freq)) +
+  scale_fill_gradient(name="count", low="white", high="black") +
+  scale_x_discrete(            labels=   (some.names)) +
+  scale_y_discrete(limits=rev, labels=rev(some.names)) +
+  coord_equal() +
+  theme(
+    legend.justification=c(1,1), legend.position = c(1,1), 
+    axis.text.x  = element_text(angle=90, hjust=1, vjust=0.5),
+    axis.ticks.y = element_blank()) +
+  labs(caption="(NB. The axes labels show only the label of every tenth class for legibility.)")
+```
+...but it is hard to get a sense of how well the classifier is performing on this data.
+
+## Figures for publication
+
+```{r echo=FALSE}
+as.data.frame.table(HASY.train) %>% 
+  as_tibble() %>%
+  ggplot(aes(x=actual,y=predicted)) +
+  geom_raster(aes(fill=Freq)) +
+  scale_fill_gradient(name="count", low="white", high="black") +
+  # See: https://stackoverflow.com/questions/31732597/how-to-not-show-all-labels-on-ggplot-axis
+  scale_x_discrete(
+    breaks = rownames(HASY.train)[c(T, rep(F, 9))],
+    label = function(x) stringr::str_trunc(x, 12)
+    ) +
+  scale_y_discrete(limits=rev, breaks = colnames(HASY.train)[c(T, rep(F, 9))],
+    label = function(x) stringr::str_trunc(x, 12)
+    ) +
+  coord_equal() +
+  theme(
+    legend.justification=c(1,1), legend.position = c(0.99,0.99), 
+    axis.text.x  = element_text(angle=90, hjust=1, vjust=0.5),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA))
+ggsave("plots/plot.HASY.pdf", width=6, height=6)
+
+```
+
+
+
+We can get more insight from plotting the priors, posteriors and likelihood ratios for each class versus all others:
+```{r}
+plot.BayesFactors.pos(HASY.train, log.range = 7, skip=9, sort.by="LR+.prior")
+ggsave("plots/plot.HASY.OVA.pdf", width=7, height=6)
+
+```
+
+
+
+# Example: compare multiple confusion matrices
+
+We can also compare multiple confusion matrices using this approach. To do this, we calculate data frames (actually _tibbles_) containing the one-versus-all binary confusion matrix statistics for `HASY.train` and `HASY.test`
+```{r}
+OVA(HASY.train, ID="training") -> HASY.train.OVA
+OVA(HASY.test,  ID="testing")  -> HASY.test.OVA
+```
+
+then bind their rows together, and sort the `class` factor by the $\mathrm{LR+}$ observed on the _training_ data:
+```{r}
+rbind(HASY.train.OVA, HASY.test.OVA) %>% 
+  select(ID, class, TP, FP, FN, TN, prior.O, PLR, post.O) %>%
+  # Sort the `class` factor by the `PLR` values of the `train` data
+  # See https://stackoverflow.com/questions/54430898/
+  group_by(ID) %>%
+  mutate(
+    class = fct_reorder(
+      class, 
+      filter(., ID=="training") %>% pull(PLR)
+      )
+    ) %>%
+  ungroup() -> HASY.both.OVA
+```
+
+so we can produce the following bespoke plot
+```{r plot-HASY.both.PLR}
+PLR.breaks <- 0:5 # Choose some nice axis breaks
+skip <- 9
+trunc.label <- 12
+ggplot(HASY.both.OVA, aes(x=log10(PLR), y=class)) +
+  geom_vline(xintercept = 0, lty=2) +
+  geom_point(aes(colour=ID)) + 
+  scale_color_discrete(name="confusion matrix") +
+  scale_x_continuous(limits=range(PLR.breaks), breaks=PLR.breaks, 
+                name="LR+", labels =label_math(10^.x)) +
+      scale_y_discrete(
+      breaks = levels(HASY.both.OVA$class)[c(T, rep(F, skip))],
+      label = function(x) stringr::str_trunc(x, trunc.label)
+    ) +
+  theme(legend.justification=c(0,1), legend.position = c(0.05,0.99), axis.ticks.y = element_blank())
+
+ggsave("plots/plot.HASY.both.pdf", width=7, height=6)
+
+```
+
+```{r echo=FALSE}
+rm(PLR.breaks)
+```
+
+This clearly shows that the classifier performs better on the training data than the testing data, as we would expect. Furthermore, by plotting the $\mathrm{LR+}$ values, we see the intrinsic ability of the classifier to discriminate classes; we have removed the prior abundance of classes from this comparison.
+
+# Zero, infinity and NaN values of likelihood ratios
+
+Note there in the previous example, warnings were issued in this plotting process, reminding us that there are some classes in the confusion matrix that warrant further inspection.
+We can filter out the rows of the data that have `0`, `+Inf` and `NaN` (not a number) values of $\mathrm{LR+}$ and tabulate them
+```{r comment=NA}
+HASY.test.OVA %>% 
+  mutate(
+    `LR+`=factor(
+      case_when(
+      PLR==0      ~ "zero",
+      PLR==+Inf   ~ "+Inf",
+      is.nan(PLR) ~ "NaN.",           # Note the ".". Without it, table() exclude these values
+      TRUE ~ "+ve"),
+      levels=c("zero", "+ve", "+Inf", "NaN")
+    )
+  )  %$% table(ID, `LR+`)
+```
+$\mathrm{LR+} = 0$ in classes that had _no true positive_ but _some false positive_ predictions from the classifier:
+```{r}
+HASY.test.OVA %>% filter(PLR==0)
+```
+
+$\mathrm{LR+} = \infty$ in classes that had _some true positive_ but _no false positive predictions_ from the classifier:
+```{r}
+HASY.test.OVA %>% filter(PLR==+Inf)
+```
+
+$\mathrm{LR+} = \mathrm{NaN}$ in classes that had _no true positive_ and _no false positive predictions_ from the classifier:
+```{r}
+HASY.test.OVA %>% filter(is.nan(PLR))
+```
+
+```{r}
+HASY.test.OVA %>% 
+  mutate(
+    `TP==0` = factor(TP==0, levels=c("TRUE", "FALSE")),
+    `FP==0` = factor(FP==0, levels=c("TRUE", "FALSE"))
+  ) %$% table(`TP==0`, `FP==0` )
+```
+
+
+
+# Bibliography
